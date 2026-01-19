@@ -32,6 +32,9 @@ use_dynamic_bsz: false
 # oc.select: the default val for ref.log_prob_max_token_len_per_gpu
 ppo_max_token_len_per_gpu: 16384
 
+# Max tokens per GPU in inference-only PPO passes (e.g., logprob)
+ppo_infer_max_token_len_per_gpu: 16384
+
 # PPO clip ratio
 clip_ratio: 0.2
 
@@ -252,4 +255,3 @@ router_replay:
   # File path to load recorded routing decisions for replay
   # Required when mode is 'replay'
   replay_file: null
-

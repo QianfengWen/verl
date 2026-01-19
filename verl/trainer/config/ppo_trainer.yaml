@@ -83,6 +83,12 @@ algorithm:
   # Whether to normalize advantages by std (specific to GRPO)
   norm_adv_by_std_in_grpo: True
 
+  # Whether to enable reflection during training (GRPO only). Null uses default behavior.
+  use_reflection: null
+
+  # Whether to enable reflection during validation. Null follows use_reflection.
+  use_reflection_in_validation: null
+
   # Whether to enable in-reward KL penalty
   use_kl_in_reward: False
 

@@ -540,9 +540,13 @@ class AgentLoopWorkerBase:
         #   e.g., [0,0,0,0,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,0,0,0,0]
 
         # TODO(wuxibin): remove padding and use tensordict.
+        prompt_ids = output.prompt_ids
+        max_prompt_len = self.config.actor_rollout_ref.rollout.prompt_length
+        if max_prompt_len is not None and len(prompt_ids) > max_prompt_len:
+            prompt_ids = prompt_ids[-max_prompt_len:]
         self.tokenizer.padding_side = "left"
         prompt_output = self.tokenizer.pad(
-            {"input_ids": output.prompt_ids},
+            {"input_ids": prompt_ids},
             padding="max_length",
             max_length=self.config.actor_rollout_ref.rollout.prompt_length,
             return_tensors="pt",
@@ -591,7 +595,7 @@ class AgentLoopWorkerBase:
             routed_experts = torch.zeros(1, total_length, layer_num, topk_num, dtype=experts_tensor.dtype)
 
             # Calculate start position: left padding means original prompt starts at the end
-            start_pos = prompt_output["input_ids"].shape[1] - len(output.prompt_ids)
+            start_pos = prompt_output["input_ids"].shape[1] - len(prompt_ids)
             end_pos = min(start_pos + length, total_length)
 
             # Add boundary checks for robustness
