@@ -66,16 +66,23 @@ from verl.utils.tracking import ValidationGenerationsLogger
 from verl.workers.config import FSDPEngineConfig
 from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
+# Coundow Reflection Instruction
+# DEFAULT_REFLECTION_INSTRUCTION = (
+#     "Follow the instructions exactly:\n"
+#     "1. Do a self reflection, assess the previous response, pointing out any mistakes or explicitly confirming it is correct.\n"
+#     "2. Recompute the reasoning base on your reflection, ensuring every number is used exactly "
+#     "once with basic operations only.\n"
+#     "3. In <answer>...</answer>, output only the arithmetic expression (no '=' sign or target value) that evaluates "
+#     "to the required result.\n"
+# )
 
+# GSM8K Reflection Instruction
 DEFAULT_REFLECTION_INSTRUCTION = (
-    "Follow the instructions exactly:\n"
-    "1. Do a self reflection, assess the previous response, pointing out any mistakes or explicitly confirming it is correct.\n"
-    "2. Recompute the reasoning base on your reflection, ensuring every number is used exactly "
-    "once with basic operations only.\n"
-    "3. In <answer>...</answer>, output only the arithmetic expression (no '=' sign or target value) that evaluates "
-    "to the required result.\n"
+    "Review your previous GSM8K answer.\n"
+    "1) Reflect: check for arithmetic, logical, or unit errors; if correct, briefly say why.\n"
+    "2) Recompute: redo the calculation succinctly to verify.\n"
+    "3) Output: last line only as \"#### <answer>\" (numeric).\n"
 )
-
 
 def _json_default(obj: Any) -> Any:
     if isinstance(obj, np.ndarray):
@@ -705,6 +712,9 @@ class RayPPOTrainer:
         base_correct_list = []
         reflection_correct_list = []
         reflection_scores = []
+        reflection_inputs = []
+        reflection_outputs = []
+        reflection_gts = []
         reflection_uids = []
         reflection_data_source_lst = []
 
@@ -826,8 +836,26 @@ class RayPPOTrainer:
                         reflection_output_padded = self.async_rollout_manager.generate_sequences(reflection_gen_batch_padded)
                     reflection_output = unpad_dataproto(reflection_output_padded, pad_size=reflection_pad_size)
                     reflection_gen_batch = unpad_dataproto(reflection_gen_batch_padded, pad_size=reflection_pad_size)
-                    reflection_output.non_tensor_batch = dict(reflection_gen_batch.non_tensor_batch)
                     reflection_output.meta_info["validate"] = True
+
+                    # Merge prompt-side fields without overwriting reward extras from reflection generation.
+                    reward_extra_keys = set(reflection_output.meta_info.get("reward_extra_keys", []))
+                    merged_non_tensor = dict(reflection_output.non_tensor_batch)
+                    for key, value in reflection_gen_batch.non_tensor_batch.items():
+                        if key not in reward_extra_keys and key not in merged_non_tensor:
+                            merged_non_tensor[key] = value
+                    reflection_output.non_tensor_batch = merged_non_tensor
+                    reflection_output_ids = reflection_output.batch["responses"]
+                    reflection_output_texts = [
+                        self.tokenizer.decode(ids, skip_special_tokens=True) for ids in reflection_output_ids
+                    ]
+                    reflection_outputs.extend(reflection_output_texts)
+                    reflection_input_ids = reflection_output.batch["prompts"]
+                    reflection_input_texts = [
+                        self.tokenizer.decode(ids, skip_special_tokens=True) for ids in reflection_input_ids
+                    ]
+                    reflection_inputs.extend(reflection_input_texts)
+                    reflection_gts.extend(ground_truths)
 
                     reflection_result = self._compute_or_extract_reward(
                         reflection_output, reward_fn=self.val_reward_fn, return_dict=True
@@ -868,6 +896,16 @@ class RayPPOTrainer:
                 reward_extra_infos_dict=reward_extra_infos_dict,
                 dump_path=val_data_dir,
             )
+            if reflection_inputs:
+                reflection_dump_dir = os.path.join(val_data_dir, "reflection")
+                self._dump_generations(
+                    inputs=reflection_inputs,
+                    outputs=reflection_outputs,
+                    gts=reflection_gts,
+                    scores=reflection_scores,
+                    reward_extra_infos_dict=reflection_reward_extra_infos_dict,
+                    dump_path=reflection_dump_dir,
+                )
 
         for key_info, lst in reward_extra_infos_dict.items():
             assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
@@ -1541,6 +1579,7 @@ class RayPPOTrainer:
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
+                logger.finish()
                 return
 
         if self.config.actor_rollout_ref.rollout.get("skip_rollout", False):
@@ -1952,6 +1991,7 @@ class RayPPOTrainer:
                     allow_reflection=True,
                 )
                 if stop_training:
+                    logger.finish()
                     return
                 if pending_reflection is not None:
                     reflection_batch, reflection_gen_batch = pending_reflection
@@ -1962,4 +2002,5 @@ class RayPPOTrainer:
                         allow_reflection=False,
                     )
                     if stop_training:
+                        logger.finish()
                         return

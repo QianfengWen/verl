@@ -60,8 +60,9 @@ TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-32}"
 MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-1024}"
 MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-1024}"
 TP_SIZE="${TP_SIZE:-1}"
+TEST_FREQ="${TEST_FREQ:-5}"
 
-REFLECTION_TRAIN="${REFLECTION_TRAIN:-true}"
+REFLECTION_TRAIN="${REFLECTION_TRAIN:-false}"
 REFLECTION_VAL="${REFLECTION_VAL:-true}"
 if [[ "${REFLECTION_TRAIN}" == "1" || "${REFLECTION_TRAIN}" == "true" || "${REFLECTION_TRAIN}" == "True" ]]; then
   REFLECTION_TAG="reflect"
@@ -128,11 +129,11 @@ PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}" python3 -m verl.trainer.main_ppo \
   trainer.project_name='verl_dapo_gsm8k' \
   trainer.experiment_name="${EXPERIMENT_NAME}" \
   trainer.resume_mode=disable \
+  trainer.test_freq="${TEST_FREQ}" \
   trainer.n_gpus_per_node="${NUM_GPUS}" \
   trainer.nnodes=1 \
   trainer.default_local_dir="${DEFAULT_LOCAL_DIR}" \
   trainer.rollout_data_dir="${ROLLOUT_DIR}" \
-  trainer.vali
   reward_model.reward_manager=dapo \
   reward_model.use_dynamic_bsz=True \
   reward_model.forward_max_token_len_per_gpu="${CRITIC_MAX_TOKENS}" \
